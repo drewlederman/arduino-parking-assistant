@@ -32,11 +32,12 @@ const int thresholdPingR = 7500;
 const int thresholdPingA = 12500;
 
 /*
-* We use a running average of the values read from the ping sensor in order to obtain a 
-* more stable value in case of bad readings.
+* We use a running average of the values read from the ping sensor in an attempt
+* to filter out bad readings.
 */
-const int pingBufferSize = 5;
+const int pingBufferSize = 3;
 long pingBuffer[pingBufferSize];
+const int maxPingDelta = 5000;
 
 /*
 * Represents the state of the main power to the traffic signal.
@@ -54,17 +55,14 @@ boolean gOn = false;
 * Initial setup
 */
 void setup() 
-{  
+{
   pinMode(pinLight, INPUT);
   pinMode(pinPower, OUTPUT);
   pinMode(pinR, OUTPUT);
   pinMode(pinA, OUTPUT);
   pinMode(pinG, OUTPUT);
   
-  // Initialize the ping buffer with sane values.
-  for (int i = 0; i < pingBufferSize; i++) {
-    pingBuffer[i] = 15000;
-  }
+  fillPingBuffer(0);
 }
 
 /*
@@ -72,37 +70,50 @@ void setup()
 */
 void loop() 
 {
-  // Read the value from the light sensor; turn the power to the signal
+  // Read the value from the light sensor; turn the main power to the signal
   // on or off accordingly
-  int lightValue = analogRead(pinLight);
-  if (lightValue <= thresholdLight && powerOn == false) {
-    digitalWrite(pinPower, HIGH);
-    powerOn = true;
+  boolean lightOn = checkLightSensor();
+  if (lightOn && !powerOn) {
+    setPower(true);
   }
-  else if (lightValue > thresholdLight && powerOn == true) {
-    digitalWrite(pinPower, LOW);
-    setLights(false, false, false);
-    powerOn = false;
+  else if (!lightOn && powerOn) {
+    setPower(false);
+    reset();
   } 
   
-  // If power is off, delay 1 second and bail so we don't unnecessarily spin
+  // If power is off, sleep
   if (powerOn == false) {
     delay(1000);
     return;
   }
   
-  // Power is on, perform a ping
-  ping();
+  // Power is on, ping!
+  long pingValue = ping();
   
-  // Get the average ping value and switch on the appropriate light
-  long averagePing = getAveragePing();  
-  if (averagePing <= thresholdPingR && !rOn) {
+  // Get average ping value; if it's zero, fill the buffer with sane values
+  long pingAverage = getAveragePing();
+  if (pingAverage == 0) {
+    fillPingBuffer(pingValue);
+  }
+  
+  // If the ping value deviates too far from the moving average, assume it's a bad reading
+  long pingDelta = abs(pingValue - pingAverage);
+  if (pingDelta > maxPingDelta) {
+    delay(100);
+    return;
+  }
+  
+  // Seems to be a good reading; proceed normally
+  pushPingValue(pingValue);
+  
+  // Switch on the appropriate light
+  if (pingValue <= thresholdPingR && !rOn) {
     setLights(true, false, false); // Red on
   }
-  else if (averagePing > thresholdPingR && averagePing <= thresholdPingA && !aOn) {
+  else if (pingValue > thresholdPingR && pingValue <= thresholdPingA && !aOn) {
     setLights(false, true, false); // Amber on
   }
-  else if (averagePing > thresholdPingA && !gOn) {
+  else if (pingValue > thresholdPingA && !gOn) {
     setLights(false, false, true); // Green on
   }
   
@@ -111,9 +122,37 @@ void loop()
 }
 
 /*
-* Signals the ping sensor to run a cycle and adds the result to the buffer.
+* Turns the main power on or off.
 */
-void ping() 
+void setPower(boolean power)
+{
+  digitalWrite(pinPower, power ? HIGH : LOW);
+  powerOn = power;
+}
+
+/*
+* Turns off power to all lights and empties the ping buffer.
+*/ 
+void reset() 
+{
+  setLights(false, false, false);
+  fillPingBuffer(0);
+}
+
+/*
+* Reads the value from the light sensor; returns true if light exceeds the threshold,
+* false otherwise.
+*/
+boolean checkLightSensor()
+{
+  int lightValue = analogRead(pinLight);
+  return lightValue <= thresholdLight;
+}
+
+/*
+* Signals the ping sensor to run a cycle and returns the duration in microseconds.
+*/
+long ping() 
 {
   // Send a short pulse to the ping sensor; this will signal the sensor to emit
   // a high frequency sound wave and wait for the echo to return.
@@ -129,7 +168,24 @@ void ping()
   pinMode(pinPing, INPUT);
   long ping = pulseIn(pinPing, HIGH);
   
-  // Push the result into our buffer
+  return ping;
+}
+
+/*
+* Fills the ping buffer with a given value
+*/
+void fillPingBuffer(long value)
+{
+  for (int i = 0; i < pingBufferSize; i++) {
+    pingBuffer[i] = value;
+  }
+}
+
+/*
+* Pushes a value into the ping buffer
+*/
+void pushPingValue(long ping) 
+{
   for (int i = pingBufferSize-1; i >= 0; i--) {
     pingBuffer[i] = pingBuffer[i-1];
   }
