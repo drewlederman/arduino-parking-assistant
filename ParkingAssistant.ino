@@ -22,14 +22,14 @@ const int pinG = 5;
 * If the value read from the light sensor is less than or equal to this value, the
 * main power to the signal will be turned on, otherwise it will be turned off.
 */
-const int thresholdLight = 50;
+const int thresholdLight = 100;
 
 /*
 * Thresholds for controlling the red and amber lights. The green light will be switched 
 * on if the ping value exceeds the amber threshold. Tweak these as necessary.
 */
-const int thresholdPingR = 7500;
-const int thresholdPingA = 12500;
+const int thresholdPingR = 7000;
+const int thresholdPingA = 15000;
 
 /*
 * We use a running average of the values read from the ping sensor in an attempt
