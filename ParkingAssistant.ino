@@ -31,6 +31,9 @@ const int thresholdLight = 100;
 const int thresholdPingR = 7000;
 const int thresholdPingA = 15000;
 
+const int maxPing = 16000;
+const int pingTimeout = 40000;
+
 /*
 * We use a running average of the values read from the ping sensor in an attempt
 * to filter out bad readings.
@@ -167,7 +170,11 @@ long ping()
   // of microseconds it took for the sound wave to return to the sensor.
   pinMode(pinPing, INPUT);
   long ping = pulseIn(pinPing, HIGH);
-  
+  if (ping > pingTimeout) {
+    // A value this high probably means the ping timed-out. Return the
+    // highest value we can realistically read from the sensor.
+    return maxPing;
+  }
   return ping;
 }
 
