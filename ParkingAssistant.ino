@@ -31,16 +31,10 @@ const int thresholdLight = 100;
 const int thresholdPingR = 7000;
 const int thresholdPingA = 15000;
 
-const int maxPing = 16000;
-const int pingTimeout = 40000;
-
 /*
-* We use a running average of the values read from the ping sensor in an attempt
-* to filter out bad readings.
+* Timeout in microseconds to be used for the ping sensor
 */
-const int pingBufferSize = 3;
-long pingBuffer[pingBufferSize];
-const int maxPingDelta = 5000;
+const int pingTimeout = 17000;
 
 /*
 * Represents the state of the main power to the traffic signal.
@@ -59,13 +53,13 @@ boolean gOn = false;
 */
 void setup() 
 {
+  Serial.begin(9600);
+  
   pinMode(pinLight, INPUT);
   pinMode(pinPower, OUTPUT);
   pinMode(pinR, OUTPUT);
   pinMode(pinA, OUTPUT);
   pinMode(pinG, OUTPUT);
-  
-  fillPingBuffer(0);
 }
 
 /*
@@ -78,10 +72,11 @@ void loop()
   boolean lightOn = checkLightSensor();
   if (lightOn && !powerOn) {
     setPower(true);
+    setLights(false, false, true);
   }
   else if (!lightOn && powerOn) {
     setPower(false);
-    reset();
+    setLights(false, false, false);
   } 
   
   // If power is off, sleep
@@ -92,22 +87,11 @@ void loop()
   
   // Power is on, ping!
   long pingValue = ping();
-  
-  // Get average ping value; if it's zero, fill the buffer with sane values
-  long pingAverage = getAveragePing();
-  if (pingAverage == 0) {
-    fillPingBuffer(pingValue);
-  }
-  
-  // If the ping value deviates too far from the moving average, assume it's a bad reading
-  long pingDelta = abs(pingValue - pingAverage);
-  if (pingDelta > maxPingDelta) {
+  if (pingValue == pingTimeout) { 
+    // Timed-out, bail
     delay(100);
     return;
   }
-  
-  // Seems to be a good reading; proceed normally
-  pushPingValue(pingValue);
   
   // Switch on the appropriate light
   if (pingValue <= thresholdPingR && !rOn) {
@@ -119,7 +103,7 @@ void loop()
   else if (pingValue > thresholdPingA && !gOn) {
     setLights(false, false, true); // Green on
   }
-  
+    
   // Don't need to go so fast
   delay(100);
 }
@@ -129,17 +113,7 @@ void loop()
 */
 void setPower(boolean power)
 {
-  digitalWrite(pinPower, power ? HIGH : LOW);
-  powerOn = power;
-}
-
-/*
-* Turns off power to all lights and empties the ping buffer.
-*/ 
-void reset() 
-{
-  setLights(false, false, false);
-  fillPingBuffer(0);
+  digitalWrite(pinPower, powerOn = power ? HIGH : LOW);
 }
 
 /*
@@ -169,46 +143,11 @@ long ping()
   // Read from the sensor; the duration of the pulse represents the number 
   // of microseconds it took for the sound wave to return to the sensor.
   pinMode(pinPing, INPUT);
-  long ping = pulseIn(pinPing, HIGH);
-  if (ping > pingTimeout) {
-    // A value this high probably means the ping timed-out. Return the
-    // highest value we can realistically read from the sensor.
-    return maxPing;
+  long ping = pulseIn(pinPing, HIGH, pingTimeout);
+  if (ping == 0) {
+    return pingTimeout;
   }
   return ping;
-}
-
-/*
-* Fills the ping buffer with a given value
-*/
-void fillPingBuffer(long value)
-{
-  for (int i = 0; i < pingBufferSize; i++) {
-    pingBuffer[i] = value;
-  }
-}
-
-/*
-* Pushes a value into the ping buffer
-*/
-void pushPingValue(long ping) 
-{
-  for (int i = pingBufferSize-1; i >= 0; i--) {
-    pingBuffer[i] = pingBuffer[i-1];
-  }
-  pingBuffer[0] = ping;
-}
-
-/*
-* Returns the average of the values in the ping buffer.
-*/
-long getAveragePing()
-{
-  long total = 0;
-  for (int i = 0; i < pingBufferSize; i++) {
-    total += pingBuffer[i];
-  }
-  return total / pingBufferSize;
 }
 
 /*
